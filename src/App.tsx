@@ -16,7 +16,8 @@ import {
   Sparkles,
   RefreshCw,
   Image as ImageIcon,
-  CheckCircle2
+  CheckCircle2,
+  Upload
 } from 'lucide-react';
 
 // --- Types ---
@@ -27,6 +28,7 @@ interface Scene {
   mainEmotion: string;
   secondaryEmotion: string;
   text: string;
+  visualPrompt: string;
   imageUrl?: string;
   prompt?: string;
 }
@@ -37,15 +39,25 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 async function storyToScenes(story: string): Promise<Scene[]> {
   const model = "gemini-3-flash-preview";
-  const prompt = `Break this story into a sequence of scenes. 
-- For short stories: 5 scenes.
-- For long stories: 8-10 scenes.
+  const prompt = `Break this story into a sequence of scenes for a visual storyboard. 
+- For short stories: EXACTLY 5-6 scenes.
+- For long stories: 8-12 scenes.
 
-Structure the scenes to cover the entire narrative from beginning to end.
+CRITICAL: The scenes MUST cover the entire narrative from the very beginning to the very end. Do not skip any major plot points.
+
 Each scene must have:
-1. A unique description for the AI artist.
-2. A short snippet of narration text (max 12 words) to be displayed on the image.
+1. A unique description for the AI artist (minimalist stick figure style).
+2. A short snippet of narration text (max 12 words) to be displayed on the image. 
+   CRITICAL LANGUAGE RULE: This text MUST be in the SAME LANGUAGE as the input story. 
+   - If the story is in French, the narration text MUST be in French. 
+   - If the story is in English, the narration text MUST be in English.
+   - DO NOT translate the story to English for the narration text.
 3. Main emotion and secondary emotion for the characters.
+4. A dynamic "visualPrompt" for an image generator. This prompt should describe a creative, minimalist stick-figure composition. 
+   - It should specify the position of characters, their actions, and any minimal environmental elements (e.g., a single tree, a simple desk, a mountain line).
+   - It must strictly follow the "minimalist black and white stick figure on white background" style.
+   - It should NOT include any text or words.
+   - Focus on body language and composition to convey the story.
 
 Story: ${story}
 
@@ -55,6 +67,7 @@ Return the result as a JSON array of objects.`;
     model,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
+      temperature: 0.9,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -67,9 +80,10 @@ Return the result as a JSON array of objects.`;
             description: { type: Type.STRING },
             mainEmotion: { type: Type.STRING },
             secondaryEmotion: { type: Type.STRING },
-            text: { type: Type.STRING }
+            text: { type: Type.STRING },
+            visualPrompt: { type: Type.STRING }
           },
-          required: ["scene", "description", "mainEmotion", "secondaryEmotion", "text"]
+          required: ["scene", "description", "mainEmotion", "secondaryEmotion", "text", "visualPrompt"]
         }
       }
     }
@@ -89,18 +103,17 @@ async function generateSceneImage(scene: Scene, aspectRatio: string): Promise<st
   const model = "gemini-2.5-flash-image";
   const prompt = `A minimalist black and white stick figure illustration, simple hand-drawn style, clean white background. 
 
+${scene.visualPrompt}
+
 CRITICAL RULES:
 - ABSOLUTELY NO text, words, letters, labels, or signatures in the image.
 - NO speech bubbles, NO thought bubbles.
 - The image should be pure visual art with stick figures only.
-
-VISUAL STYLE:
-- In the center, a stick figure showing ${scene.mainEmotion} through body language and facial expression ONLY. 
-- On both sides, small groups of stick figures showing ${scene.secondaryEmotion} through body language and facial expression ONLY. 
-- The drawing is simple, cartoon-like, with thin lines and no shading. 
-- Keep the background pure white and empty.
-
-High contrast, minimal, inspirational tone. Scene context: ${scene.description}.`;
+- DO NOT write the emotions (like "Fear", "Sadness", etc.) as text in the image.
+- DO NOT write the scene description as text in the image.
+- The image must be 100% free of any written characters.
+- Simple thin lines, no shading, high contrast.
+- The background MUST be pure white.`;
 
   const response = await genAI.models.generateContent({
     model,
@@ -212,7 +225,73 @@ const LoadingOverlay = ({ message }: { message: string }) => (
   </motion.div>
 );
 
+// --- Translations ---
+
+const translations = {
+  en: {
+    title: "Stick Story AI",
+    subtitle: "AI Content Creator",
+    description: "Turn your stories into viral visual content with minimalist stick-figure animations.",
+    inputLabel: "Enter your story or transcript",
+    uploadBtn: "Upload SRT / Text",
+    placeholder: "Paste your story or upload an SRT file to generate visuals...",
+    clear: "Clear",
+    copyText: "Copy Text",
+    selectFormat: "Select Format",
+    tiktok: "TikTok / Shorts (9:16)",
+    youtube: "YouTube (16:9)",
+    generateBtn: "Generate Visual Story",
+    analyzing: "Analyzing your story...",
+    drawing: (n: number) => `Drawing ${n} scenes in parallel...`,
+    drawingScene: "Drawing Scene...",
+    sceneCounter: (current: number, total: number) => `Scene ${current} / ${total}`,
+    previewVideo: "Preview Video",
+    downloadAll: "Download All",
+    startOver: "Start Over",
+    storyboard: "Storyboard",
+    scenes: "Scenes",
+    copyAllText: "Copy All Text",
+    allTextCopied: "All scene text copied!",
+    storyCopied: "Story copied to clipboard!",
+    error: "Something went wrong during generation. Please try again.",
+    footer: "Built with Gemini",
+    downloadScene: "Download Scene"
+  },
+  fr: {
+    title: "Stick Story AI",
+    subtitle: "Créateur de Contenu IA",
+    description: "Transformez vos histoires en contenu viral avec des animations minimalistes de bonshommes allumettes.",
+    inputLabel: "Entrez votre histoire ou transcription",
+    uploadBtn: "Charger SRT / Texte",
+    placeholder: "Collez votre histoire ou chargez un fichier SRT pour générer des visuels...",
+    clear: "Effacer",
+    copyText: "Copier le texte",
+    selectFormat: "Choisir le Format",
+    tiktok: "TikTok / Shorts (9:16)",
+    youtube: "YouTube (16:9)",
+    generateBtn: "Générer l'Histoire Visuelle",
+    analyzing: "Analyse de votre histoire...",
+    drawing: (n: number) => `Dessin de ${n} scènes en parallèle...`,
+    drawingScene: "Dessin de la scène...",
+    sceneCounter: (current: number, total: number) => `Scène ${current} / ${total}`,
+    previewVideo: "Aperçu Vidéo",
+    downloadAll: "Tout Télécharger",
+    startOver: "Recommencer",
+    storyboard: "Storyboard",
+    scenes: "Scènes",
+    copyAllText: "Copier tout le texte",
+    allTextCopied: "Texte de toutes les scènes copié !",
+    storyCopied: "Histoire copiée dans le presse-papier !",
+    error: "Une erreur est survenue lors de la génération. Veuillez réessayer.",
+    footer: "Propulsé par Gemini",
+    downloadScene: "Télécharger la scène"
+  }
+};
+
 export default function App() {
+  const [lang, setLang] = useState<'en' | 'fr'>('fr');
+  const t = translations[lang];
+
   const [story, setStory] = useState('');
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -220,12 +299,54 @@ export default function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [videoMode, setVideoMode] = useState(false);
   const [format, setFormat] = useState<"9:16" | "16:9">("9:16");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const parseSRT = (srtContent: string) => {
+    return srtContent
+      .replace(/\d+\r?\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}/g, '') // Remove index and timestamps
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line !== "" && !/^\d+$/.test(line)) // Filter empty lines and standalone numbers
+      .join(' ')
+      .replace(/\s+/g, ' ') // Collapse multiple spaces
+      .trim();
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      if (file.name.endsWith('.srt')) {
+        const parsedText = parseSRT(content);
+        setStory(parsedText);
+      } else {
+        setStory(content);
+      }
+      // Reset file input so same file can be uploaded again
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const clearAll = () => {
+    setStory("");
+    setScenes([]);
+    setCurrentIndex(0);
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(story);
+    alert(t.storyCopied);
+  };
 
   const handleGenerate = async () => {
     if (!story.trim()) return;
 
     setIsGenerating(true);
-    setLoadingMessage("Analyzing your story...");
+    setLoadingMessage(t.analyzing);
     
     try {
       const generatedScenes = await storyToScenes(story);
@@ -235,30 +356,47 @@ export default function App() {
       setScenes(generatedScenes);
       setCurrentIndex(0);
       
-      setLoadingMessage(`Drawing ${generatedScenes.length} scenes in parallel...`);
+      setLoadingMessage(t.drawing(generatedScenes.length));
 
-      // Generate all images in parallel for much faster results
-      await Promise.all(generatedScenes.map(async (scene, i) => {
-        try {
-          const rawImageUrl = await generateSceneImage(scene, format);
-          const processedImageUrl = await addTextToImage(rawImageUrl, scene.text);
-          
-          setScenes(prev => {
-            const next = [...prev];
-            if (next[i]) {
-              next[i] = { ...next[i], imageUrl: processedImageUrl };
+      // Generate images sequentially with a small delay to avoid 429 errors
+      for (let i = 0; i < generatedScenes.length; i++) {
+        const scene = generatedScenes[i];
+        let retries = 3;
+        let success = false;
+        
+        while (retries > 0 && !success) {
+          try {
+            const rawImageUrl = await generateSceneImage(scene, format);
+            const processedImageUrl = await addTextToImage(rawImageUrl, scene.text);
+            
+            setScenes(prev => {
+              const next = [...prev];
+              if (next[i]) {
+                next[i] = { ...next[i], imageUrl: processedImageUrl };
+              }
+              return next;
+            });
+            success = true;
+          } catch (err) {
+            console.error(`Failed to generate image for scene ${i + 1} (Attempt ${4 - retries})`, err);
+            retries--;
+            if (retries > 0) {
+              // Wait longer between retries if it's a 429
+              const waitTime = err instanceof Error && err.message.includes('429') ? 3000 : 1000;
+              await new Promise(resolve => setTimeout(resolve, waitTime));
             }
-            return next;
-          });
-        } catch (err) {
-          console.error(`Failed to generate image for scene ${i + 1}`, err);
-          // We don't throw here to allow other scenes to finish
+          }
         }
-      }));
+        
+        // Small delay between successful generations to be safe
+        if (i < generatedScenes.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
 
     } catch (error) {
       console.error("Generation failed", error);
-      alert("Something went wrong during generation. Please try again.");
+      alert(t.error);
     } finally {
       setIsGenerating(false);
     }
@@ -297,7 +435,21 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="max-w-4xl mx-auto px-6 py-12 text-center">
+      <header className="max-w-4xl mx-auto px-6 py-12 text-center relative">
+        <div className="absolute top-4 right-6 flex gap-2">
+          <button 
+            onClick={() => setLang('en')}
+            className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 border border-black transition-colors ${lang === 'en' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'}`}
+          >
+            EN
+          </button>
+          <button 
+            onClick={() => setLang('fr')}
+            className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 border border-black transition-colors ${lang === 'fr' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'}`}
+          >
+            FR
+          </button>
+        </div>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -305,13 +457,13 @@ export default function App() {
         >
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-black/10 text-xs font-semibold uppercase tracking-widest mb-6">
             <Sparkles className="w-3 h-3" />
-            AI Content Creator
+            {t.subtitle}
           </div>
           <h1 className="text-5xl md:text-7xl font-bold tracking-tighter mb-4">
-            Stick Story AI
+            {t.title}
           </h1>
           <p className="text-xl text-black/60 max-w-2xl mx-auto leading-relaxed">
-            Turn your stories into viral visual content with minimalist stick-figure animations.
+            {t.description}
           </p>
         </motion.div>
       </header>
@@ -323,19 +475,53 @@ export default function App() {
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white border-2 border-black p-8 md:p-12 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
           >
-            <label className="block text-sm font-bold uppercase tracking-wider mb-4">
-              Enter your story
-            </label>
+            <div className="flex items-center justify-between mb-4">
+              <label className="block text-sm font-bold uppercase tracking-wider">
+                {t.inputLabel}
+              </label>
+              <label className="cursor-pointer flex items-center gap-2 text-xs font-bold uppercase tracking-widest hover:text-black transition-colors group">
+                <Upload className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                {t.uploadBtn}
+                <input 
+                  type="file" 
+                  accept=".srt,.txt" 
+                  className="hidden" 
+                  onChange={handleFileUpload}
+                  ref={fileInputRef}
+                />
+              </label>
+            </div>
             <textarea
               value={story}
               onChange={(e) => setStory(e.target.value)}
-              placeholder="Once upon a time, a small stick figure decided to climb the highest mountain..."
-              className="w-full h-48 p-4 text-lg border-2 border-black focus:outline-none focus:ring-0 resize-none mb-6 placeholder:text-black/20"
+              placeholder={t.placeholder}
+              className="w-full h-48 p-4 text-lg border-2 border-black focus:outline-none focus:ring-0 resize-none mb-4 placeholder:text-black/20"
             />
+
+            <div className="flex flex-wrap gap-4 mb-6">
+              {story && (
+                <>
+                  <button 
+                    onClick={clearAll}
+                    className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest hover:text-red-500 transition-colors"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    {t.clear}
+                  </button>
+                  <button 
+                    onClick={copyToClipboard}
+                    className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest hover:text-blue-500 transition-colors"
+                  >
+                    <Send className="w-3 h-3" />
+                    {t.copyText}
+                  </button>
+                </>
+              )}
+            </div>
 
             <div className="mb-8">
               <label className="block text-sm font-bold uppercase tracking-wider mb-4">
-                Select Format
+                {t.selectFormat}
               </label>
               <div className="grid grid-cols-2 gap-4">
                 <button
@@ -343,14 +529,14 @@ export default function App() {
                   className={`py-3 border-2 border-black font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${format === "9:16" ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'}`}
                 >
                   <div className="w-3 h-5 border-2 border-current rounded-sm" />
-                  TikTok / Shorts (9:16)
+                  {t.tiktok}
                 </button>
                 <button
                   onClick={() => setFormat("16:9")}
                   className={`py-3 border-2 border-black font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${format === "16:9" ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'}`}
                 >
                   <div className="w-5 h-3 border-2 border-current rounded-sm" />
-                  YouTube (16:9)
+                  {t.youtube}
                 </button>
               </div>
             </div>
@@ -361,7 +547,7 @@ export default function App() {
               className="w-full py-4 bg-black text-white text-lg font-bold uppercase tracking-widest hover:bg-black/90 transition-colors flex items-center justify-center gap-3 disabled:opacity-50"
             >
               {isGenerating ? <Loader2 className="animate-spin" /> : <Send className="w-5 h-5" />}
-              Generate Visual Story
+              {t.generateBtn}
             </button>
           </motion.div>
         ) : (
@@ -389,7 +575,7 @@ export default function App() {
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-gray-50">
                         <Loader2 className="w-8 h-8 animate-spin text-black/20" />
-                        <p className="text-xs font-bold uppercase tracking-widest text-black/40">Drawing Scene...</p>
+                        <p className="text-xs font-bold uppercase tracking-widest text-black/40">{t.drawingScene}</p>
                       </div>
                     )}
                   </motion.div>
@@ -415,7 +601,7 @@ export default function App() {
 
                 {/* Scene Counter */}
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-1 bg-black text-white text-xs font-bold tracking-widest uppercase">
-                  Scene {currentIndex + 1} / {scenes.length}
+                  {t.sceneCounter(currentIndex + 1, scenes.length)}
                 </div>
               </div>
             </div>
@@ -428,7 +614,7 @@ export default function App() {
                 className="px-8 py-3 bg-white border-2 border-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-all flex items-center gap-2 disabled:opacity-50"
               >
                 <Play className="w-4 h-4" />
-                Preview Video
+                {t.previewVideo}
               </button>
               <button
                 onClick={downloadAll}
@@ -436,7 +622,7 @@ export default function App() {
                 className="px-8 py-3 bg-white border-2 border-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-all flex items-center gap-2 disabled:opacity-50"
               >
                 <Download className="w-4 h-4" />
-                Download All
+                {t.downloadAll}
               </button>
               <button
                 onClick={() => {
@@ -447,44 +633,73 @@ export default function App() {
                 className="px-8 py-3 bg-white border-2 border-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-all flex items-center gap-2"
               >
                 <RefreshCw className="w-4 h-4" />
-                Start Over
+                {t.startOver}
               </button>
             </div>
 
             {/* Storyboard Grid */}
             <div className="mt-16">
-              <h2 className="text-2xl font-black uppercase tracking-tighter mb-8 flex items-center gap-4">
-                <span className="bg-black text-white px-3 py-1">Storyboard</span>
-                <span className="text-black/30">{scenes.length} Scenes</span>
+              <h2 className="text-2xl font-black uppercase tracking-tighter mb-8 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="bg-black text-white px-3 py-1">{t.storyboard}</span>
+                  <span className="text-black/30">{scenes.length} {t.scenes}</span>
+                </div>
+                <button 
+                  onClick={() => {
+                    const allText = scenes.map((s, i) => `Scene ${i+1}: ${s.text}`).join('\n');
+                    navigator.clipboard.writeText(allText);
+                    alert(t.allTextCopied);
+                  }}
+                  className="text-[10px] font-bold uppercase tracking-widest hover:text-black transition-colors flex items-center gap-2"
+                >
+                  <Send className="w-3 h-3" />
+                  {t.copyAllText}
+                </button>
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {scenes.map((scene, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setCurrentIndex(idx)}
-                    className={`text-left group transition-all ${currentIndex === idx ? 'scale-105' : 'opacity-60 hover:opacity-100'}`}
-                  >
-                    <div className={`aspect-[9/16] border-2 border-black mb-3 overflow-hidden bg-gray-50 relative ${currentIndex === idx ? 'shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]' : ''}`}>
-                      {scene.imageUrl ? (
-                        <img 
-                          src={scene.imageUrl} 
-                          alt={`Scene ${idx + 1}`} 
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Loader2 className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  <div key={idx} className="relative group">
+                    <button
+                      onClick={() => setCurrentIndex(idx)}
+                      className={`text-left w-full transition-all ${currentIndex === idx ? 'scale-105' : 'opacity-60 hover:opacity-100'}`}
+                    >
+                      <div className={`${format === "9:16" ? "aspect-[9/16]" : "aspect-[16/9]"} border-2 border-black mb-3 overflow-hidden bg-gray-50 relative ${currentIndex === idx ? 'shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]' : ''}`}>
+                        {scene.imageUrl ? (
+                          <img 
+                            src={scene.imageUrl} 
+                            alt={`Scene ${idx + 1}`} 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Loader2 className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                          </div>
+                        )}
+                        <div className="absolute top-2 left-2 bg-black text-white text-[10px] font-bold px-1.5 py-0.5 uppercase">
+                          {idx + 1}
                         </div>
-                      )}
-                      <div className="absolute top-2 left-2 bg-black text-white text-[10px] font-bold px-1.5 py-0.5 uppercase">
-                        {idx + 1}
                       </div>
-                    </div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest line-clamp-2 leading-tight">
-                      {scene.text}
-                    </p>
-                  </button>
+                      <p className="text-[10px] font-bold uppercase tracking-widest line-clamp-2 leading-tight">
+                        {scene.text}
+                      </p>
+                    </button>
+                    {scene.imageUrl && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const link = document.createElement('a');
+                          link.href = scene.imageUrl!;
+                          link.download = `scene-${idx + 1}.png`;
+                          link.click();
+                        }}
+                        className="absolute top-2 right-2 p-1.5 bg-white border border-black opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black hover:text-white"
+                        title={t.downloadScene}
+                      >
+                        <Download className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -494,7 +709,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-black/5 py-12 text-center text-black/40 text-xs font-bold uppercase tracking-widest">
-        &copy; 2026 Stick Story AI &bull; Built with Gemini
+        &copy; 2026 {t.title} &bull; {t.footer}
       </footer>
     </div>
   );
