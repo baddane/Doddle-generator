@@ -334,59 +334,6 @@ async function addTextToImage(base64: string, text: string): Promise<string> {
 
 // --- Thumbnail Generation ---
 
-async function generateThumbnail(story: string, scenes: Scene[]): Promise<string> {
-  const model = "gemini-2.5-flash-image";
-
-  // Pick the most dramatic/emotional scene for thumbnail inspiration
-  const keyScene = scenes[Math.floor(scenes.length / 2)];
-
-  const prompt = `Generate a YouTube thumbnail image in the EXACT style of viral "stick figure story" channels.
-
-REFERENCE STYLE (this is what viral stick figure thumbnails look like):
-- SOLID BRIGHT background: pick ONE bold color — bright yellow (#FFD700), hot red (#FF2020), electric blue (#00BFFF), or neon green (#39FF14). The ENTIRE background is this single flat color, no gradients, no patterns.
-- ONE large black stick figure in the CENTER, taking up 60-70% of the image height.
-- The stick figure has a HUGE round head (circle) with EXTREMELY exaggerated facial expression:
-  * Giant wide-open eyes (large white circles with tiny black pupils)
-  * Massive open mouth showing SHOCK, FEAR, or SURPRISE
-  * Sweat drops, tears, or exclamation marks around the head
-- The stick figure's body is in a DRAMATIC pose: arms thrown up in panic, running, falling, or pointing at something.
-- Add 2-3 simple context objects related to the story (e.g., money bags, a house, an airplane, a heart, a question mark) drawn in simple black line art style.
-- Optional: thick black arrows pointing at something, or a red circle/cross highlighting something.
-
-STORY CONTEXT: ${story.substring(0, 200)}
-KEY EMOTION: ${keyScene.mainEmotion}
-
-COMPOSITION:
-- The stick figure is positioned on the LEFT or CENTER of the image.
-- The RIGHT side has some empty space (for text the user will add later).
-- The overall look should be SIMPLE, BOLD, and readable even at small size (mobile phone).
-- Think MrBeast-style thumbnails but with stick figures instead of real people.
-
-CRITICAL RULES:
-- ABSOLUTELY NO text, words, letters, numbers, labels, watermarks, or any written characters AT ALL.
-- NO speech bubbles, NO thought bubbles.
-- The image is 100% VISUAL ONLY. Zero text.
-- Keep it SIMPLE — maximum 1 stick figure + 2-3 small objects. Don't overcrowd.
-- The background MUST be a single solid bright color, NOT white, NOT a gradient.`;
-
-  const response = await genAI.models.generateContent({
-    model,
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: {
-      imageConfig: {
-        aspectRatio: '16:9' as any,
-      }
-    }
-  });
-
-  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-  if (part?.inlineData?.data) {
-    return `data:image/png;base64,${part.inlineData.data}`;
-  }
-
-  throw new Error("No thumbnail image data returned");
-}
-
 /**
  * Generate a short, punchy clickbait title for the thumbnail
  * in the same language as the story.
@@ -395,7 +342,7 @@ async function generateThumbnailTitle(story: string): Promise<string> {
   const model = "gemini-3-flash-preview";
   const prompt = `Generate a SHORT, punchy YouTube thumbnail title for this story.
 Rules:
-- Maximum 5-6 words. Shorter is better.
+- Maximum 4-5 words. Shorter is better.
 - Must be in the SAME LANGUAGE as the story.
 - Use power words that trigger curiosity or emotion (e.g., "SHOCKING", "WARNING", "THE TRUTH ABOUT", "NEVER DO THIS", "YOU WON'T BELIEVE").
 - ALL CAPS for maximum impact.
@@ -416,79 +363,60 @@ Return ONLY the title text, nothing else.`;
 }
 
 /**
- * Overlay a bold clickbait title on the thumbnail image.
- * Style: big white text with thick black outline, positioned on the right side.
+ * Generate a colorful YouTube thumbnail with the clickbait title
+ * rendered directly by Gemini for a natural, integrated look.
  */
-async function addTitleToThumbnail(base64: string, title: string): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const timeout = setTimeout(() => resolve(base64), 5000);
+async function generateThumbnail(story: string, scenes: Scene[], title: string): Promise<string> {
+  const model = "gemini-2.5-flash-image";
 
-    img.onload = () => {
-      clearTimeout(timeout);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return resolve(base64);
+  const keyScene = scenes[Math.floor(scenes.length / 2)];
 
-      // Draw the thumbnail image
-      ctx.drawImage(img, 0, 0);
+  const prompt = `Generate a YouTube thumbnail image in the EXACT style of viral "stick figure story" channels.
 
-      // Text config
-      const fontSize = Math.floor(canvas.width * 0.07);
-      ctx.font = `900 ${fontSize}px "Permanent Marker", "Impact", "Arial Black", sans-serif`;
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
+REFERENCE STYLE:
+- SOLID BRIGHT background: pick ONE bold color — bright yellow (#FFD700), hot red (#FF2020), electric blue (#00BFFF), or neon green (#39FF14). The ENTIRE background is this single flat color, no gradients.
+- ONE large black stick figure on the LEFT side, taking up 60-70% of the image height.
+- The stick figure has a HUGE round head with EXTREMELY exaggerated facial expression:
+  * Giant wide-open eyes (large white circles with tiny black pupils)
+  * Massive open mouth showing SHOCK, FEAR, or SURPRISE
+  * Sweat drops, tears, or exclamation marks around the head
+- The stick figure's body is in a DRAMATIC pose: arms thrown up in panic, running, falling, or pointing.
+- Add 1-2 simple context objects related to the story drawn in simple black line art.
 
-      // Wrap text for the right side
-      const maxWidth = canvas.width * 0.45;
-      const padding = canvas.width * 0.04;
-      const words = title.split(' ');
-      let line = '';
-      const lines: string[] = [];
+STORY CONTEXT: ${story.substring(0, 200)}
+KEY EMOTION: ${keyScene.mainEmotion}
 
-      for (let n = 0; n < words.length; n++) {
-        const testLine = line + words[n] + ' ';
-        if (ctx.measureText(testLine).width > maxWidth && n > 0) {
-          lines.push(line.trim());
-          line = words[n] + ' ';
-        } else {
-          line = testLine;
-        }
+TEXT TO INCLUDE (this is MANDATORY):
+Write this EXACT text in big, bold letters on the RIGHT side of the image: "${title}"
+- The text MUST be large, taking up about 40% of the image width.
+- Use a thick, bold, hand-drawn style font.
+- Text color: WHITE with a very THICK BLACK outline/stroke for maximum readability.
+- The text should be slightly tilted/dynamic (not perfectly horizontal) to feel energetic.
+- Each word should be on its own line if needed for maximum size.
+
+COMPOSITION:
+- Stick figure on the LEFT (about 50% of image).
+- Big bold text "${title}" on the RIGHT (about 40% of image).
+- Keep it SIMPLE, BOLD, and readable even at mobile phone size.
+
+IMPORTANT: You MUST include the text "${title}" in the image. This is the most important part of the thumbnail.`;
+
+  const response = await genAI.models.generateContent({
+    model,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      imageConfig: {
+        aspectRatio: '16:9' as any,
       }
-      lines.push(line.trim());
-
-      // Position text on the right, vertically centered
-      const lineHeight = fontSize * 1.2;
-      const totalHeight = lines.length * lineHeight;
-      const startY = (canvas.height - totalHeight) / 2 + lineHeight / 2;
-      const x = canvas.width - padding;
-
-      // Draw each line with thick outline + fill
-      lines.forEach((lineText, i) => {
-        const y = startY + i * lineHeight;
-
-        // Thick black outline (draw multiple times for thickness)
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = fontSize * 0.15;
-        ctx.lineJoin = 'round';
-        ctx.miterLimit = 2;
-        ctx.strokeText(lineText, x, y);
-
-        // Yellow/white fill
-        ctx.fillStyle = '#FFD700';
-        ctx.fillText(lineText, x, y);
-      });
-
-      resolve(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => {
-      clearTimeout(timeout);
-      resolve(base64);
-    };
-    img.src = base64;
+    }
   });
+
+  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+  if (part?.inlineData?.data) {
+    return `data:image/png;base64,${part.inlineData.data}`;
+  }
+
+  throw new Error("No thumbnail image data returned");
 }
 
 // --- Toast Component ---
@@ -808,14 +736,10 @@ export default function App() {
       // Generate YouTube thumbnail after all scenes
       setLoadingMessage(t.generatingThumbnail);
       try {
-        // Generate thumbnail image and clickbait title in parallel
-        const [thumbUrl, thumbTitle] = await Promise.all([
-          generateThumbnail(story, scenesWithTiming),
-          generateThumbnailTitle(story),
-        ]);
-        // Overlay the title text on the thumbnail
-        const finalThumb = await addTitleToThumbnail(thumbUrl, thumbTitle);
-        setThumbnailUrl(finalThumb);
+        // Generate title first, then pass it to thumbnail generation
+        const thumbTitle = await generateThumbnailTitle(story);
+        const thumbUrl = await generateThumbnail(story, scenesWithTiming, thumbTitle);
+        setThumbnailUrl(thumbUrl);
       } catch (err) {
         console.error("Thumbnail generation failed", err);
         // Non-blocking — scenes are still usable without thumbnail
