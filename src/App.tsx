@@ -387,6 +387,110 @@ CRITICAL RULES:
   throw new Error("No thumbnail image data returned");
 }
 
+/**
+ * Generate a short, punchy clickbait title for the thumbnail
+ * in the same language as the story.
+ */
+async function generateThumbnailTitle(story: string): Promise<string> {
+  const model = "gemini-3-flash-preview";
+  const prompt = `Generate a SHORT, punchy YouTube thumbnail title for this story.
+Rules:
+- Maximum 5-6 words. Shorter is better.
+- Must be in the SAME LANGUAGE as the story.
+- Use power words that trigger curiosity or emotion (e.g., "SHOCKING", "WARNING", "THE TRUTH ABOUT", "NEVER DO THIS", "YOU WON'T BELIEVE").
+- ALL CAPS for maximum impact.
+- No punctuation except "!" or "?"
+- Think viral YouTube clickbait style.
+
+Story: ${story.substring(0, 300)}
+
+Return ONLY the title text, nothing else.`;
+
+  const response = await genAI.models.generateContent({
+    model,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: { temperature: 1.0 }
+  });
+
+  return (response.text || '').trim().replace(/^["']|["']$/g, '');
+}
+
+/**
+ * Overlay a bold clickbait title on the thumbnail image.
+ * Style: big white text with thick black outline, positioned on the right side.
+ */
+async function addTitleToThumbnail(base64: string, title: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const timeout = setTimeout(() => resolve(base64), 5000);
+
+    img.onload = () => {
+      clearTimeout(timeout);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(base64);
+
+      // Draw the thumbnail image
+      ctx.drawImage(img, 0, 0);
+
+      // Text config
+      const fontSize = Math.floor(canvas.width * 0.07);
+      ctx.font = `900 ${fontSize}px "Permanent Marker", "Impact", "Arial Black", sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+
+      // Wrap text for the right side
+      const maxWidth = canvas.width * 0.45;
+      const padding = canvas.width * 0.04;
+      const words = title.split(' ');
+      let line = '';
+      const lines: string[] = [];
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+          lines.push(line.trim());
+          line = words[n] + ' ';
+        } else {
+          line = testLine;
+        }
+      }
+      lines.push(line.trim());
+
+      // Position text on the right, vertically centered
+      const lineHeight = fontSize * 1.2;
+      const totalHeight = lines.length * lineHeight;
+      const startY = (canvas.height - totalHeight) / 2 + lineHeight / 2;
+      const x = canvas.width - padding;
+
+      // Draw each line with thick outline + fill
+      lines.forEach((lineText, i) => {
+        const y = startY + i * lineHeight;
+
+        // Thick black outline (draw multiple times for thickness)
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = fontSize * 0.15;
+        ctx.lineJoin = 'round';
+        ctx.miterLimit = 2;
+        ctx.strokeText(lineText, x, y);
+
+        // Yellow/white fill
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText(lineText, x, y);
+      });
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => {
+      clearTimeout(timeout);
+      resolve(base64);
+    };
+    img.src = base64;
+  });
+}
+
 // --- Toast Component ---
 
 interface ToastMessage {
@@ -704,8 +808,14 @@ export default function App() {
       // Generate YouTube thumbnail after all scenes
       setLoadingMessage(t.generatingThumbnail);
       try {
-        const thumbUrl = await generateThumbnail(story, scenesWithTiming);
-        setThumbnailUrl(thumbUrl);
+        // Generate thumbnail image and clickbait title in parallel
+        const [thumbUrl, thumbTitle] = await Promise.all([
+          generateThumbnail(story, scenesWithTiming),
+          generateThumbnailTitle(story),
+        ]);
+        // Overlay the title text on the thumbnail
+        const finalThumb = await addTitleToThumbnail(thumbUrl, thumbTitle);
+        setThumbnailUrl(finalThumb);
       } catch (err) {
         console.error("Thumbnail generation failed", err);
         // Non-blocking — scenes are still usable without thumbnail
