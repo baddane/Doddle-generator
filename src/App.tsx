@@ -163,13 +163,33 @@ function generateCapCutTimingText(scenes: Scene[]): string {
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
-async function storyToScenes(story: string): Promise<Scene[]> {
+async function storyToScenes(story: string, targetSceneCount?: number): Promise<Scene[]> {
   const model = "gemini-3-flash-preview";
-  const prompt = `Break this story into a sequence of scenes for a visual storyboard. 
-- For short stories: EXACTLY 5-6 scenes.
-- For long stories: 8-12 scenes.
 
-CRITICAL: The scenes MUST cover the entire narrative from the very beginning to the very end. Do not skip any major plot points.
+  // Calculate ideal scene count based on story length
+  const wordCount = story.trim().split(/\s+/).length;
+  let sceneCount: number;
+  if (targetSceneCount) {
+    sceneCount = targetSceneCount;
+  } else if (wordCount < 150) {
+    sceneCount = 5;
+  } else if (wordCount < 400) {
+    sceneCount = 8;
+  } else if (wordCount < 800) {
+    sceneCount = 12;
+  } else if (wordCount < 1500) {
+    sceneCount = 18;
+  } else {
+    sceneCount = 24;
+  }
+
+  const prompt = `Break this story into EXACTLY ${sceneCount} scenes for a visual storyboard.
+
+CRITICAL:
+- You MUST generate EXACTLY ${sceneCount} scenes, no more, no less.
+- The scenes MUST cover the ENTIRE narrative from the very beginning to the very end.
+- Each scene should cover roughly an equal portion of the story.
+- Do not skip any major plot points or arguments.
 
 Each scene must have:
 1. A unique description for the AI artist (minimalist stick figure style).
@@ -200,7 +220,7 @@ Return the result as a JSON array of objects.`;
       responseSchema: {
         type: Type.ARRAY,
         minItems: 5,
-        maxItems: 12,
+        maxItems: 30,
         items: {
           type: Type.OBJECT,
           properties: {
@@ -796,7 +816,16 @@ export default function App() {
     setLoadingMessage(t.analyzing);
 
     try {
-      const generatedScenes = await storyToScenes(story);
+      // Calculate target scene count from SRT duration if available
+      let targetSceneCount: number | undefined;
+      if (srtSegments.length > 0) {
+        const totalDurationMs = srtSegments[srtSegments.length - 1].endMs - srtSegments[0].startMs;
+        const totalSeconds = totalDurationMs / 1000;
+        // ~1 scene every 15-20 seconds for good visual pacing
+        targetSceneCount = Math.max(5, Math.min(30, Math.round(totalSeconds / 17)));
+      }
+
+      const generatedScenes = await storyToScenes(story, targetSceneCount);
       if (generatedScenes.length === 0) {
         throw new Error("No scenes were generated.");
       }
