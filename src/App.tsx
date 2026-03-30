@@ -56,11 +56,13 @@ Each scene must have:
    - If the story is in English, the narration text MUST be in English.
    - DO NOT translate the story to English for the narration text.
 3. Main emotion and secondary emotion for the characters.
-4. A dynamic "visualPrompt" for an image generator. This prompt should describe a creative, minimalist stick-figure composition. 
+4. A dynamic "visualPrompt" for an image generator. This prompt should describe a creative, minimalist stick-figure composition.
    - It should specify the position of characters, their actions, and any minimal environmental elements (e.g., a single tree, a simple desk, a mountain line).
    - It must strictly follow the "minimalist black and white stick figure on white background" style.
    - It should NOT include any text or words.
-   - Focus on body language and composition to convey the story.
+   - Focus on EXAGGERATED body language, dynamic poses, and dramatic composition to convey emotion powerfully.
+   - Stick figures should have expressive features: wide arms for surprise, hunched posture for sadness, jumping for joy, trembling lines for fear, etc.
+   - IMPORTANT LAYOUT RULE: All visual elements (characters, objects, scenery) MUST be positioned in the UPPER 75% of the image. The BOTTOM 25% must remain completely empty white space (this area is reserved for text overlay).
 
 Story: ${story}
 
@@ -104,18 +106,26 @@ Return the result as a JSON array of objects.`;
 
 async function generateSceneImage(scene: Scene, aspectRatio: string): Promise<string> {
   const model = "gemini-2.5-flash-image";
-  const prompt = `A minimalist black and white stick figure illustration, simple hand-drawn style, clean white background. 
+  const prompt = `A bold, expressive minimalist black and white stick figure illustration, hand-drawn sketch style, clean white background.
 
 ${scene.visualPrompt}
 
+STYLE & EXPRESSION:
+- Stick figures must be HIGHLY EXPRESSIVE with exaggerated body language and dynamic poses.
+- Use varied line thickness: thicker lines for emphasis, thinner for details.
+- Add motion lines, sweat drops, impact stars, or emotion marks (like a broken heart, sparkles, swirls) to convey feelings.
+- Characters should have simple but expressive faces (dots for eyes, curved lines for mouths showing clear emotions).
+- Use scale and perspective creatively: a scared character can be tiny next to a large threat, a confident character can be bold and large.
+
+LAYOUT:
+- ALL drawings, characters, and visual elements MUST be in the UPPER 70-75% of the image.
+- The BOTTOM 25-30% of the image MUST be completely empty pure white space. Draw NOTHING there.
+- This bottom white space is critical — it will be used for text overlay.
+
 CRITICAL RULES:
-- ABSOLUTELY NO text, words, letters, labels, or signatures in the image.
-- NO speech bubbles, NO thought bubbles.
-- The image should be pure visual art with stick figures only.
-- DO NOT write the emotions (like "Fear", "Sadness", etc.) as text in the image.
-- DO NOT write the scene description as text in the image.
+- ABSOLUTELY NO text, words, letters, labels, or signatures anywhere in the image.
+- NO speech bubbles, NO thought bubbles with text.
 - The image must be 100% free of any written characters.
-- Simple thin lines, no shading, high contrast.
 - The background MUST be pure white.`;
 
   const response = await genAI.models.generateContent({
@@ -137,13 +147,13 @@ CRITICAL RULES:
 }
 
 /**
- * Overlays text onto the generated image using a canvas to ensure
- * perfect consistency in font, size, and positioning across all scenes.
+ * Overlays text onto the BOTTOM of the generated image using a canvas.
+ * Uses Permanent Marker font for a hand-drawn feel that matches stick figures.
+ * Draws a white band at the bottom so text never overlaps the illustration.
  */
 async function addTextToImage(base64: string, text: string): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
-    // No crossOrigin for data URLs
     const timeout = setTimeout(() => {
       console.warn("Image processing timed out for scene");
       resolve(base64);
@@ -160,40 +170,57 @@ async function addTextToImage(base64: string, text: string): Promise<string> {
       // 1. Draw original image
       ctx.drawImage(img, 0, 0);
 
-      // 2. Configure text style (Consistent across all images)
-      const padding = canvas.width * 0.08;
-      const fontSize = Math.floor(canvas.width * 0.045); // Responsive but fixed ratio
-      ctx.font = `500 ${fontSize}px "Inter", -apple-system, sans-serif`;
-      ctx.fillStyle = 'black';
+      // 2. Configure text style — Permanent Marker for hand-drawn feel
+      const padding = canvas.width * 0.06;
+      const fontSize = Math.floor(canvas.width * 0.042);
+      ctx.font = `${fontSize}px "Permanent Marker", "Marker Felt", "Comic Sans MS", cursive`;
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
+      ctx.textBaseline = 'bottom';
 
       // 3. Wrap text logic
       const maxWidth = canvas.width - (padding * 2);
       const words = text.split(' ');
       let line = '';
-      const lines = [];
-      
+      const lines: string[] = [];
+
       for (let n = 0; n < words.length; n++) {
         const testLine = line + words[n] + ' ';
         const metrics = ctx.measureText(testLine);
-        const testWidth = metrics.width;
-        if (testWidth > maxWidth && n > 0) {
-          lines.push(line);
+        if (metrics.width > maxWidth && n > 0) {
+          lines.push(line.trim());
           line = words[n] + ' ';
         } else {
           line = testLine;
         }
       }
-      lines.push(line);
+      lines.push(line.trim());
 
-      // 4. Draw text at the top with consistent spacing
-      const startY = canvas.height * 0.06;
-      const lineHeight = fontSize * 1.3;
-      
-      lines.forEach((line, i) => {
-        ctx.fillText(line.trim(), canvas.width / 2, startY + (i * lineHeight));
-      });
+      // 4. Calculate text zone at the BOTTOM
+      const lineHeight = fontSize * 1.4;
+      const textBlockHeight = lines.length * lineHeight;
+      const bottomMargin = canvas.height * 0.03;
+      const bandPadding = fontSize * 0.6;
+
+      // 5. Draw white band behind text (solid white so no overlap)
+      const bandTop = canvas.height - bottomMargin - textBlockHeight - bandPadding;
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, bandTop, canvas.width, canvas.height - bandTop);
+
+      // 6. Optional subtle top border for the band
+      ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padding, bandTop);
+      ctx.lineTo(canvas.width - padding, bandTop);
+      ctx.stroke();
+
+      // 7. Draw text lines from bottom up
+      ctx.fillStyle = '#111111';
+      const textStartY = canvas.height - bottomMargin;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const y = textStartY - ((lines.length - 1 - i) * lineHeight);
+        ctx.fillText(lines[i], canvas.width / 2, y);
+      }
 
       resolve(canvas.toDataURL('image/png'));
     };
