@@ -24,7 +24,11 @@ import {
   Zap,
   Clock,
   Archive,
-  Palette
+  Palette,
+  PenTool,
+  History,
+  Trash2,
+  Eye
 } from 'lucide-react';
 
 // --- Types ---
@@ -48,6 +52,25 @@ interface Scene {
   imageUrl?: string;
   prompt?: string;
   timing?: { start: string; end: string }; // CapCut timing
+}
+
+interface CustomImage {
+  id: number;
+  description: string;
+  format: string;
+  imageUrl: string;
+  createdAt: number;
+}
+
+interface HistoryEntry {
+  id: number;
+  storyPreview: string;
+  sceneCount: number;
+  format: string;
+  thumbnailPreview?: string; // small base64 thumbnail for preview
+  createdAt: number;
+  scenes: Scene[];
+  thumbnailUrl?: string | null;
 }
 
 // --- SRT Utilities ---
@@ -542,7 +565,21 @@ const translations = {
     thumbnail: "YouTube Thumbnail",
     thumbnailDesc: "Colorful thumbnail optimized for click-through rate",
     downloadThumbnail: "Download Thumbnail",
-    thumbnailIncluded: "Thumbnail included in ZIP"
+    thumbnailIncluded: "Thumbnail included in ZIP",
+    customScene: "Custom Scene",
+    customSceneDesc: "Describe a single scene and generate it instantly",
+    customPlaceholder: "Describe your scene... (e.g., 'A stick figure standing on top of a mountain with arms raised in victory')",
+    generateScene: "Generate Scene",
+    generatingCustom: "Generating your scene...",
+    customImages: "Custom Images",
+    sessionHistory: "Session History",
+    historyEmpty: "No history yet. Generate your first story!",
+    loadFromHistory: "Load",
+    deleteFromHistory: "Delete",
+    scenesLabel: "scenes",
+    historyCleared: "History cleared",
+    historySaved: "Saved to history",
+    historyLoaded: "Story loaded from history"
   },
   fr: {
     title: "Stick Story AI",
@@ -592,7 +629,21 @@ const translations = {
     thumbnail: "Miniature YouTube",
     thumbnailDesc: "Miniature colorée optimisée pour le taux de clic",
     downloadThumbnail: "Télécharger la miniature",
-    thumbnailIncluded: "Miniature incluse dans le ZIP"
+    thumbnailIncluded: "Miniature incluse dans le ZIP",
+    customScene: "Scène Personnalisée",
+    customSceneDesc: "Décrivez une scène et générez-la instantanément",
+    customPlaceholder: "Décrivez votre scène... (ex: 'Un bonhomme allumette au sommet d'une montagne les bras levés en signe de victoire')",
+    generateScene: "Générer la Scène",
+    generatingCustom: "Génération de votre scène...",
+    customImages: "Images Personnalisées",
+    sessionHistory: "Historique de Session",
+    historyEmpty: "Aucun historique. Générez votre première histoire !",
+    loadFromHistory: "Charger",
+    deleteFromHistory: "Supprimer",
+    scenesLabel: "scènes",
+    historyCleared: "Historique effacé",
+    historySaved: "Sauvegardé dans l'historique",
+    historyLoaded: "Histoire chargée depuis l'historique"
   }
 };
 
@@ -612,8 +663,48 @@ export default function App() {
   const [srtSegments, setSrtSegments] = useState<SrtSegment[]>([]);
   const [isZipping, setIsZipping] = useState(false);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  // Custom scene generator
+  const [customDesc, setCustomDesc] = useState('');
+  const [customFormat, setCustomFormat] = useState<"9:16" | "16:9">("9:16");
+  const [customImages, setCustomImages] = useState<CustomImage[]>([]);
+  const [isGeneratingCustom, setIsGeneratingCustom] = useState(false);
+  // Session history
+  const [history, setHistory] = useState<HistoryEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('stickstory-history');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [showHistory, setShowHistory] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // --- Persist history to localStorage ---
+  useEffect(() => {
+    try {
+      // Limit to 20 entries and trim large imageUrls for storage
+      const toSave = history.slice(0, 20).map(h => ({
+        ...h,
+        scenes: h.scenes.map(s => ({ ...s, imageUrl: undefined })),
+        thumbnailUrl: undefined,
+      }));
+      localStorage.setItem('stickstory-history', JSON.stringify(toSave));
+    } catch { /* storage full — silently ignore */ }
+  }, [history]);
+
+  const saveToHistory = useCallback((storyText: string, generatedScenes: Scene[], fmt: string, thumb: string | null) => {
+    const entry: HistoryEntry = {
+      id: Date.now(),
+      storyPreview: storyText.substring(0, 100) + (storyText.length > 100 ? '...' : ''),
+      sceneCount: generatedScenes.length,
+      format: fmt,
+      createdAt: Date.now(),
+      scenes: generatedScenes,
+      thumbnailUrl: thumb,
+    };
+    setHistory(prev => [entry, ...prev].slice(0, 20));
+  }, []);
 
   // --- Toast helpers ---
   const showToast = useCallback((text: string) => {
@@ -765,12 +856,58 @@ export default function App() {
         // Non-blocking — scenes are still usable without thumbnail
       }
 
+      // Save to session history
+      saveToHistory(story, scenesWithTiming, format, null);
+      showToast(t.historySaved);
+
     } catch (error) {
       console.error("Generation failed", error);
       showToast(t.error);
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // --- Custom Scene Generator ---
+  const handleGenerateCustom = async () => {
+    if (!customDesc.trim()) return;
+    setIsGeneratingCustom(true);
+    try {
+      const fakeScene: Scene = {
+        scene: 0,
+        description: customDesc,
+        mainEmotion: '',
+        secondaryEmotion: '',
+        text: '',
+        visualPrompt: customDesc,
+      };
+      const rawImageUrl = await generateSceneImage(fakeScene, customFormat);
+      const newImage: CustomImage = {
+        id: Date.now(),
+        description: customDesc,
+        format: customFormat,
+        imageUrl: rawImageUrl,
+        createdAt: Date.now(),
+      };
+      setCustomImages(prev => [newImage, ...prev]);
+      setCustomDesc('');
+      showToast('Scene generated!');
+    } catch (err) {
+      console.error('Custom scene generation failed', err);
+      showToast(t.error);
+    } finally {
+      setIsGeneratingCustom(false);
+    }
+  };
+
+  // --- Load from history ---
+  const loadFromHistory = (entry: HistoryEntry) => {
+    setScenes(entry.scenes);
+    setThumbnailUrl(entry.thumbnailUrl || null);
+    setFormat(entry.format as "9:16" | "16:9");
+    setCurrentIndex(0);
+    setShowHistory(false);
+    showToast(t.historyLoaded);
   };
 
   const downloadAllAsZip = async () => {
@@ -848,6 +985,13 @@ export default function App() {
       <header className="max-w-4xl mx-auto px-6 py-12 text-center relative">
         <div className="absolute top-4 right-6 flex gap-2">
           <button
+            onClick={() => setShowHistory(!showHistory)}
+            className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 border border-black transition-colors flex items-center gap-1 ${showHistory ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'}`}
+          >
+            <History className="w-3 h-3" />
+            {history.length > 0 && <span>{history.length}</span>}
+          </button>
+          <button
             onClick={() => setLang('en')}
             className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 border border-black transition-colors ${lang === 'en' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'}`}
           >
@@ -877,6 +1021,67 @@ export default function App() {
           </p>
         </motion.div>
       </header>
+
+      {/* History Panel */}
+      <AnimatePresence>
+        {showHistory && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="max-w-4xl mx-auto px-6 mb-8 overflow-hidden"
+          >
+            <div className="border-2 border-black p-6 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                  <History className="w-4 h-4" />
+                  {t.sessionHistory}
+                </h3>
+                {history.length > 0 && (
+                  <button
+                    onClick={() => { setHistory([]); showToast(t.historyCleared); }}
+                    className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-700 flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Clear
+                  </button>
+                )}
+              </div>
+              {history.length === 0 ? (
+                <p className="text-xs text-black/40 italic">{t.historyEmpty}</p>
+              ) : (
+                <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                  {history.map(entry => (
+                    <div key={entry.id} className="flex items-center gap-4 p-3 border border-black/10 hover:border-black/30 transition-colors">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold truncate">{entry.storyPreview}</p>
+                        <p className="text-[10px] text-black/40 mt-1">
+                          {entry.sceneCount} {t.scenesLabel} · {entry.format} · {new Date(entry.createdAt).toLocaleTimeString()}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          onClick={() => loadFromHistory(entry)}
+                          className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 border border-black hover:bg-black hover:text-white transition-colors flex items-center gap-1"
+                        >
+                          <Eye className="w-3 h-3" />
+                          {t.loadFromHistory}
+                        </button>
+                        <button
+                          onClick={() => setHistory(prev => prev.filter(h => h.id !== entry.id))}
+                          className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 border border-red-300 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="max-w-4xl mx-auto px-6 pb-24">
         {scenes.length === 0 ? (
@@ -1284,6 +1489,89 @@ export default function App() {
                     )}
                   </motion.div>
                 ))}
+              </div>
+            </div>
+
+            {/* Custom Scene Generator */}
+            <div className="mt-16">
+              <h2 className="text-2xl font-black uppercase tracking-tighter mb-6 flex items-center gap-4">
+                <span className="bg-black text-white px-3 py-1 flex items-center gap-2">
+                  <PenTool className="w-5 h-5" />
+                  {t.customScene}
+                </span>
+              </h2>
+              <p className="text-xs text-black/40 uppercase tracking-widest mb-4">{t.customSceneDesc}</p>
+              <div className="border-2 border-black p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <textarea
+                  value={customDesc}
+                  onChange={(e) => setCustomDesc(e.target.value)}
+                  placeholder={t.customPlaceholder}
+                  className="w-full h-28 p-3 text-sm border-2 border-black focus:outline-none resize-none mb-4 placeholder:text-black/20"
+                />
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCustomFormat("9:16")}
+                      className={`px-3 py-1.5 border border-black text-[10px] font-bold uppercase tracking-widest transition-colors ${customFormat === "9:16" ? 'bg-black text-white' : 'hover:bg-black/5'}`}
+                    >
+                      9:16
+                    </button>
+                    <button
+                      onClick={() => setCustomFormat("16:9")}
+                      className={`px-3 py-1.5 border border-black text-[10px] font-bold uppercase tracking-widest transition-colors ${customFormat === "16:9" ? 'bg-black text-white' : 'hover:bg-black/5'}`}
+                    >
+                      16:9
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleGenerateCustom}
+                    disabled={!customDesc.trim() || isGeneratingCustom}
+                    className="px-6 py-2 bg-black text-white text-xs font-bold uppercase tracking-widest hover:bg-black/90 transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isGeneratingCustom ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    {isGeneratingCustom ? t.generatingCustom : t.generateScene}
+                  </button>
+                </div>
+
+                {/* Custom images gallery */}
+                {customImages.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-black/40 mb-3">
+                      {t.customImages} ({customImages.length})
+                    </p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {customImages.map(img => (
+                        <div key={img.id} className="relative group">
+                          <div className={`${img.format === "9:16" ? "aspect-[9/16]" : "aspect-[16/9]"} border-2 border-black overflow-hidden bg-gray-50`}>
+                            <img
+                              src={img.imageUrl}
+                              alt={img.description}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <p className="text-[9px] text-black/50 mt-1 line-clamp-1">{img.description}</p>
+                          <button
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = img.imageUrl;
+                              link.download = `custom-scene-${img.id}.png`;
+                              link.click();
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-white border border-black opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black hover:text-white"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => setCustomImages(prev => prev.filter(i => i.id !== img.id))}
+                            className="absolute top-2 left-2 p-1.5 bg-white border border-red-300 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
