@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
+import JSZip from 'jszip';
 import {
   Send,
   Loader2,
@@ -20,10 +21,21 @@ import {
   Upload,
   X,
   FileText,
-  Zap
+  Zap,
+  Clock,
+  Archive
 } from 'lucide-react';
 
 // --- Types ---
+
+interface SrtSegment {
+  index: number;
+  start: string; // "00:00:05,200"
+  end: string;   // "00:00:08,400"
+  text: string;
+  startMs: number;
+  endMs: number;
+}
 
 interface Scene {
   scene: number;
@@ -34,6 +46,93 @@ interface Scene {
   visualPrompt: string;
   imageUrl?: string;
   prompt?: string;
+  timing?: { start: string; end: string }; // CapCut timing
+}
+
+// --- SRT Utilities ---
+
+function srtTimeToMs(time: string): number {
+  const [h, m, rest] = time.split(':');
+  const [s, ms] = rest.split(',');
+  return parseInt(h) * 3600000 + parseInt(m) * 60000 + parseInt(s) * 1000 + parseInt(ms);
+}
+
+function msToCapCutTime(ms: number): string {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const msPart = ms % 1000;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(msPart).padStart(3, '0')}`;
+}
+
+function parseSRTWithTimestamps(srtContent: string): SrtSegment[] {
+  const segments: SrtSegment[] = [];
+  const blocks = srtContent.trim().split(/\r?\n\r?\n/);
+
+  for (const block of blocks) {
+    const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) continue;
+
+    // Find the timestamp line
+    const tsLine = lines.find(l => /\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}/.test(l));
+    if (!tsLine) continue;
+
+    const match = tsLine.match(/(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})/);
+    if (!match) continue;
+
+    const tsIndex = lines.indexOf(tsLine);
+    const textLines = lines.slice(tsIndex + 1);
+    if (textLines.length === 0) continue;
+
+    segments.push({
+      index: segments.length + 1,
+      start: match[1],
+      end: match[2],
+      text: textLines.join(' '),
+      startMs: srtTimeToMs(match[1]),
+      endMs: srtTimeToMs(match[2]),
+    });
+  }
+
+  return segments;
+}
+
+function assignTimingsToScenes(scenes: Scene[], segments: SrtSegment[]): Scene[] {
+  if (segments.length === 0) return scenes;
+
+  const totalDuration = segments[segments.length - 1].endMs - segments[0].startMs;
+  const globalStart = segments[0].startMs;
+  const sceneDuration = totalDuration / scenes.length;
+
+  return scenes.map((scene, i) => ({
+    ...scene,
+    timing: {
+      start: msToCapCutTime(globalStart + i * sceneDuration),
+      end: msToCapCutTime(globalStart + (i + 1) * sceneDuration),
+    }
+  }));
+}
+
+function generateCapCutTimingText(scenes: Scene[]): string {
+  let output = '=== CAPCUT TIMING GUIDE ===\n';
+  output += 'Import images in order, set each to the duration shown below.\n\n';
+
+  scenes.forEach((scene, i) => {
+    if (scene.timing) {
+      output += `Scene ${i + 1}: ${scene.timing.start} --> ${scene.timing.end}\n`;
+      output += `  File: scene-${String(i + 1).padStart(2, '0')}.png\n`;
+      output += `  Text: ${scene.text}\n\n`;
+    }
+  });
+
+  output += '=== HOW TO USE IN CAPCUT ===\n';
+  output += '1. Import all scene images into CapCut\n';
+  output += '2. Place each image on the timeline at the START time shown above\n';
+  output += '3. Trim each image to match the END time\n';
+  output += '4. Import your original audio/voiceover\n';
+  output += '5. The images will sync perfectly with the narration!\n';
+
+  return output;
 }
 
 // --- AI Service ---
@@ -324,7 +423,13 @@ const translations = {
       { label: "The Robot Friend", text: "In a world where everyone has a robot companion, a lonely boy's robot breaks down. He carries it to the repair shop but can't afford the fix. He learns to repair it himself, reading manuals late at night. When the robot finally powers on, it says 'Thank you for not giving up on me.' They walk home together under the stars." }
     ] as { label: string; text: string }[],
     generatingProgress: (done: number, total: number) => `${done} / ${total} scenes ready`,
-    emotion: "Emotion"
+    emotion: "Emotion",
+    downloadZip: "Download ZIP",
+    capCutTiming: "CapCut Timing",
+    srtDetected: "SRT timings detected — CapCut timing will be included in the ZIP",
+    copyTiming: "Copy Timing",
+    timingCopied: "CapCut timing copied to clipboard!",
+    creatingZip: "Creating ZIP..."
   },
   fr: {
     title: "Stick Story AI",
@@ -363,7 +468,13 @@ const translations = {
       { label: "L'Ami Robot", text: "Dans un monde où chacun possède un compagnon robot, le robot d'un garçon solitaire tombe en panne. Il le porte au réparateur mais n'a pas les moyens de payer. Il apprend à le réparer lui-même, lisant des manuels tard dans la nuit. Quand le robot se rallume enfin, il dit 'Merci de ne pas avoir abandonné.' Ils rentrent ensemble à la maison sous les étoiles." }
     ] as { label: string; text: string }[],
     generatingProgress: (done: number, total: number) => `${done} / ${total} scènes prêtes`,
-    emotion: "Émotion"
+    emotion: "Émotion",
+    downloadZip: "Télécharger ZIP",
+    capCutTiming: "Timing CapCut",
+    srtDetected: "Timings SRT détectés — le timing CapCut sera inclus dans le ZIP",
+    copyTiming: "Copier le timing",
+    timingCopied: "Timing CapCut copié dans le presse-papier !",
+    creatingZip: "Création du ZIP..."
   }
 };
 
@@ -380,6 +491,8 @@ export default function App() {
   const [format, setFormat] = useState<"9:16" | "16:9">("9:16");
   const [isDragging, setIsDragging] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [srtSegments, setSrtSegments] = useState<SrtSegment[]>([]);
+  const [isZipping, setIsZipping] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -406,24 +519,22 @@ export default function App() {
   const wordCount = story.trim() ? story.trim().split(/\s+/).length : 0;
   const charCount = story.length;
 
-  const parseSRT = (srtContent: string) => {
-    return srtContent
-      .replace(/\d+\r?\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}/g, '')
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(line => line !== "" && !/^\d+$/.test(line))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  };
-
   const processFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
       if (file.name.endsWith('.srt')) {
-        setStory(parseSRT(content));
+        // Parse with timestamps for CapCut timing
+        const segments = parseSRTWithTimestamps(content);
+        setSrtSegments(segments);
+        // Extract plain text for the story
+        const plainText = segments.map(s => s.text).join(' ');
+        setStory(plainText);
+        if (segments.length > 0) {
+          showToast(t.srtDetected);
+        }
       } else {
+        setSrtSegments([]);
         setStory(content);
       }
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -458,6 +569,7 @@ export default function App() {
   const clearAll = () => {
     setStory("");
     setScenes([]);
+    setSrtSegments([]);
     setCurrentIndex(0);
   };
 
@@ -477,10 +589,15 @@ export default function App() {
       if (generatedScenes.length === 0) {
         throw new Error("No scenes were generated.");
       }
-      setScenes(generatedScenes);
+      // Assign SRT timings to scenes if available
+      const scenesWithTiming = srtSegments.length > 0
+        ? assignTimingsToScenes(generatedScenes, srtSegments)
+        : generatedScenes;
+
+      setScenes(scenesWithTiming);
       setCurrentIndex(0);
 
-      setLoadingMessage(t.drawing(generatedScenes.length));
+      setLoadingMessage(t.drawing(scenesWithTiming.length));
 
       for (let i = 0; i < generatedScenes.length; i++) {
         const scene = generatedScenes[i];
@@ -524,15 +641,43 @@ export default function App() {
     }
   };
 
-  const downloadAll = () => {
-    scenes.forEach((scene, index) => {
-      if (scene.imageUrl) {
-        const link = document.createElement('a');
-        link.href = scene.imageUrl;
-        link.download = `stick-story-scene-${index + 1}.png`;
-        link.click();
+  const downloadAllAsZip = async () => {
+    setIsZipping(true);
+    try {
+      const zip = new JSZip();
+      const imgFolder = zip.folder('scenes')!;
+
+      // Add images
+      for (let i = 0; i < scenes.length; i++) {
+        const scene = scenes[i];
+        if (scene.imageUrl) {
+          // Convert data URL to binary
+          const base64Data = scene.imageUrl.split(',')[1];
+          imgFolder.file(`scene-${String(i + 1).padStart(2, '0')}.png`, base64Data, { base64: true });
+        }
       }
-    });
+
+      // Add CapCut timing file if SRT was used
+      if (scenes.some(s => s.timing)) {
+        const timingText = generateCapCutTimingText(scenes);
+        zip.file('capcut-timing.txt', timingText);
+      }
+
+      // Generate and download ZIP
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'stick-story-scenes.zip';
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('ZIP downloaded!');
+    } catch (err) {
+      console.error('ZIP creation failed', err);
+      showToast(t.error);
+    } finally {
+      setIsZipping(false);
+    }
   };
 
   const startVideoPreview = () => {
@@ -671,6 +816,16 @@ export default function App() {
               </div>
             </div>
 
+            {/* SRT timing badge */}
+            {srtSegments.length > 0 && (
+              <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-black/5 border border-black/10">
+                <Clock className="w-3.5 h-3.5 text-black/50" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-black/50">
+                  {t.capCutTiming}: {srtSegments[0].start.substring(0, 8)} → {srtSegments[srtSegments.length - 1].end.substring(0, 8)} ({srtSegments.length} segments)
+                </span>
+              </div>
+            )}
+
             {/* Example stories */}
             {!story && (
               <div className="mb-6">
@@ -806,6 +961,12 @@ export default function App() {
                 <p className="text-[10px] font-bold uppercase tracking-widest text-black/30 mt-2">
                   {t.emotion}: {scenes[currentIndex].mainEmotion} / {scenes[currentIndex].secondaryEmotion}
                 </p>
+                {scenes[currentIndex].timing && (
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-black/40 mt-1 flex items-center justify-center gap-1.5">
+                    <Clock className="w-3 h-3" />
+                    {scenes[currentIndex].timing!.start} → {scenes[currentIndex].timing!.end}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -820,17 +981,18 @@ export default function App() {
                 {t.previewVideo}
               </button>
               <button
-                onClick={downloadAll}
-                disabled={scenes.some(s => !s.imageUrl)}
+                onClick={downloadAllAsZip}
+                disabled={scenes.some(s => !s.imageUrl) || isZipping}
                 className="px-8 py-3 bg-white border-2 border-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-all flex items-center gap-2 disabled:opacity-50"
               >
-                <Download className="w-4 h-4" />
-                {t.downloadAll}
+                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+                {isZipping ? t.creatingZip : t.downloadZip}
               </button>
               <button
                 onClick={() => {
                   setScenes([]);
                   setStory('');
+                  setSrtSegments([]);
                   setCurrentIndex(0);
                 }}
                 className="px-8 py-3 bg-white border-2 border-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-all flex items-center gap-2"
@@ -847,17 +1009,32 @@ export default function App() {
                   <span className="bg-black text-white px-3 py-1">{t.storyboard}</span>
                   <span className="text-black/30">{completedScenes}/{scenes.length} {t.scenes}</span>
                 </div>
-                <button
-                  onClick={() => {
-                    const allText = scenes.map((s, i) => `Scene ${i+1}: ${s.text}`).join('\n');
-                    navigator.clipboard.writeText(allText);
-                    showToast(t.allTextCopied);
-                  }}
-                  className="text-[10px] font-bold uppercase tracking-widest hover:text-black transition-colors flex items-center gap-2"
-                >
-                  <Send className="w-3 h-3" />
-                  {t.copyAllText}
-                </button>
+                <div className="flex items-center gap-4">
+                  {scenes.some(s => s.timing) && (
+                    <button
+                      onClick={() => {
+                        const timingText = generateCapCutTimingText(scenes);
+                        navigator.clipboard.writeText(timingText);
+                        showToast(t.timingCopied);
+                      }}
+                      className="text-[10px] font-bold uppercase tracking-widest hover:text-black transition-colors flex items-center gap-2"
+                    >
+                      <Clock className="w-3 h-3" />
+                      {t.copyTiming}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      const allText = scenes.map((s, i) => `Scene ${i+1}: ${s.text}`).join('\n');
+                      navigator.clipboard.writeText(allText);
+                      showToast(t.allTextCopied);
+                    }}
+                    className="text-[10px] font-bold uppercase tracking-widest hover:text-black transition-colors flex items-center gap-2"
+                  >
+                    <Send className="w-3 h-3" />
+                    {t.copyAllText}
+                  </button>
+                </div>
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {scenes.map((scene, idx) => (
@@ -897,6 +1074,12 @@ export default function App() {
                       <p className="text-[10px] font-bold uppercase tracking-widest line-clamp-2 leading-tight">
                         {scene.text}
                       </p>
+                      {scene.timing && (
+                        <p className="text-[8px] font-mono text-black/35 mt-1 flex items-center gap-1">
+                          <Clock className="w-2.5 h-2.5" />
+                          {scene.timing.start.substring(0, 8)} → {scene.timing.end.substring(0, 8)}
+                        </p>
+                      )}
                     </button>
                     {scene.imageUrl && (
                       <button
