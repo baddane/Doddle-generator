@@ -337,34 +337,37 @@ async function addTextToImage(base64: string, text: string): Promise<string> {
 async function generateThumbnail(story: string, scenes: Scene[]): Promise<string> {
   const model = "gemini-2.5-flash-image";
 
-  // Pick the most dramatic scene for thumbnail inspiration
+  // Pick the most dramatic/emotional scene for thumbnail inspiration
   const keyScene = scenes[Math.floor(scenes.length / 2)];
 
-  const prompt = `Create a VIRAL YouTube thumbnail illustration. This must be eye-catching, colorful, and designed to maximize click-through rate.
+  const prompt = `Generate a YouTube thumbnail image in the EXACT style of viral "stick figure story" channels.
 
-STORY CONTEXT: ${story.substring(0, 300)}
-KEY SCENE: ${keyScene.visualPrompt}
+REFERENCE STYLE (this is what viral stick figure thumbnails look like):
+- SOLID BRIGHT background: pick ONE bold color — bright yellow (#FFD700), hot red (#FF2020), electric blue (#00BFFF), or neon green (#39FF14). The ENTIRE background is this single flat color, no gradients, no patterns.
+- ONE large black stick figure in the CENTER, taking up 60-70% of the image height.
+- The stick figure has a HUGE round head (circle) with EXTREMELY exaggerated facial expression:
+  * Giant wide-open eyes (large white circles with tiny black pupils)
+  * Massive open mouth showing SHOCK, FEAR, or SURPRISE
+  * Sweat drops, tears, or exclamation marks around the head
+- The stick figure's body is in a DRAMATIC pose: arms thrown up in panic, running, falling, or pointing at something.
+- Add 2-3 simple context objects related to the story (e.g., money bags, a house, an airplane, a heart, a question mark) drawn in simple black line art style.
+- Optional: thick black arrows pointing at something, or a red circle/cross highlighting something.
 
-THUMBNAIL STYLE:
-- COLORFUL and VIBRANT — use bold colors like bright yellow, red, orange, electric blue as background or accents.
-- Keep the stick figure characters but make them LARGER and MORE DRAMATIC than in the story scenes.
-- The main character should be centered and take up at least 50% of the image.
-- Use EXTREME emotions on faces: huge shocked eyes, wide open mouth, exaggerated expressions.
-- Add dynamic elements: bold color splashes, radial lines, explosion effects, spotlights, dramatic lighting effects.
-- The composition should feel ENERGETIC and create CURIOSITY.
-- Use high contrast between the stick figures (black) and the colorful background.
-- The background should NOT be plain white — use gradients, color blocks, or dramatic patterns.
+STORY CONTEXT: ${story.substring(0, 200)}
+KEY EMOTION: ${keyScene.mainEmotion}
 
-LAYOUT:
-- 16:9 aspect ratio optimized for YouTube thumbnails.
-- Main subject centered or slightly off-center for visual interest.
-- Leave some space for potential text overlay (but do NOT add any text yourself).
+COMPOSITION:
+- The stick figure is positioned on the LEFT or CENTER of the image.
+- The RIGHT side has some empty space (for text the user will add later).
+- The overall look should be SIMPLE, BOLD, and readable even at small size (mobile phone).
+- Think MrBeast-style thumbnails but with stick figures instead of real people.
 
 CRITICAL RULES:
-- ABSOLUTELY NO text, words, letters, numbers, labels, or watermarks.
-- NO speech bubbles or thought bubbles.
-- The image must be 100% free of any written characters.
-- This is purely a VISUAL thumbnail — text will be added separately.`;
+- ABSOLUTELY NO text, words, letters, numbers, labels, watermarks, or any written characters AT ALL.
+- NO speech bubbles, NO thought bubbles.
+- The image is 100% VISUAL ONLY. Zero text.
+- Keep it SIMPLE — maximum 1 stick figure + 2-3 small objects. Don't overcrowd.
+- The background MUST be a single solid bright color, NOT white, NOT a gradient.`;
 
   const response = await genAI.models.generateContent({
     model,
