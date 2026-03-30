@@ -385,35 +385,41 @@ async function generateThumbnail(story: string, scenes: Scene[], title: string):
   // Extract key visual elements from the story for the thumbnail
   const storySnippet = story.substring(0, 300);
 
-  const prompt = `Generate a YouTube thumbnail image. The thumbnail must visually represent THIS specific story:
+  const prompt = `Generate a YouTube thumbnail in a CARTOON ILLUSTRATION style (NOT stick figures). Study this reference description carefully:
+
+REFERENCE STYLE (like popular YouTube explainer channels):
+- A colorful CARTOON CHARACTER on the left side (about 40% of image), drawn in a semi-realistic cartoon/illustration style with:
+  * Full color clothing and details (shirt, hat, accessories relevant to the topic)
+  * Exaggerated facial expression: big eyes, open mouth, pointing gesture
+  * The character should look like a cartoon version of a real person, NOT a stick figure
+- A DETAILED ILLUSTRATED OBJECT or scene in the center/right that represents the story's main topic, drawn in full color cartoon style with highlights, shadows, and details.
+- Light/white/soft gradient background with subtle effects (sparkles, light rays, or small particles).
+- The overall image should look like a professional digital illustration, colorful and polished.
 
 STORY: ${storySnippet}
-TITLE TO DISPLAY: "${title}"
+KEY EMOTION: ${keyScene.mainEmotion}
 
-THE IMAGE MUST TELL THE STORY AT A GLANCE:
-- The stick figure's POSE and EXPRESSION must match the story's key moment (e.g., if the story is about sickness abroad → sick/worried stick figure with a medical cross; if about money → stick figure looking at money flying away).
-- Add 2-3 RELEVANT OBJECTS that directly illustrate the topic (e.g., for health insurance: medical cross, hospital, pill; for travel: airplane, suitcase, passport; for money: coins, bills, wallet).
-- The objects should be drawn in simple black line art, but can have one ACCENT COLOR (red cross for medical, green for money, etc.).
-
-STYLE:
-- SOLID BRIGHT background: pick a color that matches the story mood — yellow for warning/attention, red for danger/urgency, blue for information, green for money/health.
-- ONE large black stick figure on the LEFT (60-70% of image height).
-- HUGE round head with exaggerated expression matching the story emotion: ${keyScene.mainEmotion}.
-- Dramatic pose that matches the story context.
+WHAT TO DRAW:
+- A cartoon character reacting to the story's main topic (e.g., pointing, shocked, excited).
+- The main subject/object of the story illustrated in detail next to or behind the character.
+- Use colors that match the story topic: medical=blue/white/red, money=green/gold, travel=blue/orange, danger=red/black.
 
 TEXT "${title}" (MANDATORY):
-- Write "${title}" in big, bold letters on the RIGHT side.
-- The text MUST be large and readable even at phone size.
-- Text color: WHITE with THICK BLACK outline.
-- Slightly tilted for energy.
-- Each word on its own line if needed.
+- Write "${title}" in HUGE bold block letters.
+- Position: upper right area of the image, taking about 35-40% of the width.
+- Style: 3D-looking block text with strong drop shadow.
+- Colors: use 2 contrasting colors for the text (e.g., yellow text + red shadow, white text + blue shadow, red text + black shadow). Pick colors that POP against the background.
+- Each word on a separate line for maximum size.
+- The text must be the FIRST thing people notice.
 
 COMPOSITION:
-- Stick figure + relevant objects on the LEFT (50%).
-- Big bold text "${title}" on the RIGHT (40%).
-- Everything must be coherent: the text, the figure's emotion, and the objects should all tell the SAME story.
+- Character on the LEFT pointing at or reacting to the main object.
+- Main illustrated object in the CENTER.
+- Big bold text "${title}" in the UPPER RIGHT.
+- Clean, uncluttered — maximum 3 visual elements total.
+- Must be readable as a tiny thumbnail on a phone screen.
 
-CRITICAL: The text "${title}" MUST appear in the image. The objects MUST be relevant to the story topic.`;
+CRITICAL: The text "${title}" MUST appear in the image. The illustration must directly relate to the story content.`;
 
   const response = await genAI.models.generateContent({
     model,
