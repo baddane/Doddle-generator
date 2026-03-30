@@ -23,7 +23,8 @@ import {
   FileText,
   Zap,
   Clock,
-  Archive
+  Archive,
+  Palette
 } from 'lucide-react';
 
 // --- Types ---
@@ -331,6 +332,58 @@ async function addTextToImage(base64: string, text: string): Promise<string> {
   });
 }
 
+// --- Thumbnail Generation ---
+
+async function generateThumbnail(story: string, scenes: Scene[]): Promise<string> {
+  const model = "gemini-2.5-flash-image";
+
+  // Pick the most dramatic scene for thumbnail inspiration
+  const keyScene = scenes[Math.floor(scenes.length / 2)];
+
+  const prompt = `Create a VIRAL YouTube thumbnail illustration. This must be eye-catching, colorful, and designed to maximize click-through rate.
+
+STORY CONTEXT: ${story.substring(0, 300)}
+KEY SCENE: ${keyScene.visualPrompt}
+
+THUMBNAIL STYLE:
+- COLORFUL and VIBRANT — use bold colors like bright yellow, red, orange, electric blue as background or accents.
+- Keep the stick figure characters but make them LARGER and MORE DRAMATIC than in the story scenes.
+- The main character should be centered and take up at least 50% of the image.
+- Use EXTREME emotions on faces: huge shocked eyes, wide open mouth, exaggerated expressions.
+- Add dynamic elements: bold color splashes, radial lines, explosion effects, spotlights, dramatic lighting effects.
+- The composition should feel ENERGETIC and create CURIOSITY.
+- Use high contrast between the stick figures (black) and the colorful background.
+- The background should NOT be plain white — use gradients, color blocks, or dramatic patterns.
+
+LAYOUT:
+- 16:9 aspect ratio optimized for YouTube thumbnails.
+- Main subject centered or slightly off-center for visual interest.
+- Leave some space for potential text overlay (but do NOT add any text yourself).
+
+CRITICAL RULES:
+- ABSOLUTELY NO text, words, letters, numbers, labels, or watermarks.
+- NO speech bubbles or thought bubbles.
+- The image must be 100% free of any written characters.
+- This is purely a VISUAL thumbnail — text will be added separately.`;
+
+  const response = await genAI.models.generateContent({
+    model,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      imageConfig: {
+        aspectRatio: '16:9' as any,
+      }
+    }
+  });
+
+  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+  if (part?.inlineData?.data) {
+    return `data:image/png;base64,${part.inlineData.data}`;
+  }
+
+  throw new Error("No thumbnail image data returned");
+}
+
 // --- Toast Component ---
 
 interface ToastMessage {
@@ -429,7 +482,12 @@ const translations = {
     srtDetected: "SRT timings detected — CapCut timing will be included in the ZIP",
     copyTiming: "Copy Timing",
     timingCopied: "CapCut timing copied to clipboard!",
-    creatingZip: "Creating ZIP..."
+    creatingZip: "Creating ZIP...",
+    generatingThumbnail: "Creating YouTube thumbnail...",
+    thumbnail: "YouTube Thumbnail",
+    thumbnailDesc: "Colorful thumbnail optimized for click-through rate",
+    downloadThumbnail: "Download Thumbnail",
+    thumbnailIncluded: "Thumbnail included in ZIP"
   },
   fr: {
     title: "Stick Story AI",
@@ -474,7 +532,12 @@ const translations = {
     srtDetected: "Timings SRT détectés — le timing CapCut sera inclus dans le ZIP",
     copyTiming: "Copier le timing",
     timingCopied: "Timing CapCut copié dans le presse-papier !",
-    creatingZip: "Création du ZIP..."
+    creatingZip: "Création du ZIP...",
+    generatingThumbnail: "Création de la miniature YouTube...",
+    thumbnail: "Miniature YouTube",
+    thumbnailDesc: "Miniature colorée optimisée pour le taux de clic",
+    downloadThumbnail: "Télécharger la miniature",
+    thumbnailIncluded: "Miniature incluse dans le ZIP"
   }
 };
 
@@ -493,6 +556,7 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [srtSegments, setSrtSegments] = useState<SrtSegment[]>([]);
   const [isZipping, setIsZipping] = useState(false);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -570,6 +634,7 @@ export default function App() {
     setStory("");
     setScenes([]);
     setSrtSegments([]);
+    setThumbnailUrl(null);
     setCurrentIndex(0);
   };
 
@@ -633,6 +698,16 @@ export default function App() {
         }
       }
 
+      // Generate YouTube thumbnail after all scenes
+      setLoadingMessage(t.generatingThumbnail);
+      try {
+        const thumbUrl = await generateThumbnail(story, scenesWithTiming);
+        setThumbnailUrl(thumbUrl);
+      } catch (err) {
+        console.error("Thumbnail generation failed", err);
+        // Non-blocking — scenes are still usable without thumbnail
+      }
+
     } catch (error) {
       console.error("Generation failed", error);
       showToast(t.error);
@@ -655,6 +730,12 @@ export default function App() {
           const base64Data = scene.imageUrl.split(',')[1];
           imgFolder.file(`scene-${String(i + 1).padStart(2, '0')}.png`, base64Data, { base64: true });
         }
+      }
+
+      // Add YouTube thumbnail if available
+      if (thumbnailUrl) {
+        const thumbBase64 = thumbnailUrl.split(',')[1];
+        zip.file('youtube-thumbnail.png', thumbBase64, { base64: true });
       }
 
       // Add CapCut timing file if SRT was used
@@ -993,6 +1074,7 @@ export default function App() {
                   setScenes([]);
                   setStory('');
                   setSrtSegments([]);
+                  setThumbnailUrl(null);
                   setCurrentIndex(0);
                 }}
                 className="px-8 py-3 bg-white border-2 border-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-all flex items-center gap-2"
@@ -1001,6 +1083,53 @@ export default function App() {
                 {t.startOver}
               </button>
             </div>
+
+            {/* YouTube Thumbnail */}
+            {(thumbnailUrl || completedScenes === scenes.length) && (
+              <div className="mt-12">
+                <h2 className="text-2xl font-black uppercase tracking-tighter mb-6 flex items-center gap-4">
+                  <span className="bg-gradient-to-r from-red-500 to-orange-500 text-white px-3 py-1 flex items-center gap-2">
+                    <Palette className="w-5 h-5" />
+                    {t.thumbnail}
+                  </span>
+                </h2>
+                <div className="max-w-2xl mx-auto">
+                  <div className="aspect-video border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden bg-gray-50 relative">
+                    {thumbnailUrl ? (
+                      <img
+                        src={thumbnailUrl}
+                        alt="YouTube Thumbnail"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                        <Loader2 className="w-8 h-8 animate-spin text-black/20" />
+                        <p className="text-xs font-bold uppercase tracking-widest text-black/40">{t.generatingThumbnail}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between mt-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-black/40">
+                      {t.thumbnailDesc} — 1280×720 (16:9)
+                    </p>
+                    {thumbnailUrl && (
+                      <button
+                        onClick={() => {
+                          const link = document.createElement('a');
+                          link.href = thumbnailUrl;
+                          link.download = 'youtube-thumbnail.png';
+                          link.click();
+                        }}
+                        className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest hover:text-black transition-colors"
+                      >
+                        <Download className="w-3 h-3" />
+                        {t.downloadThumbnail}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Storyboard Grid */}
             <div className="mt-16">
