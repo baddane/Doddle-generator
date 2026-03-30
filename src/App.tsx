@@ -336,27 +336,38 @@ async function addTextToImage(base64: string, text: string): Promise<string> {
 
 /**
  * Generate a short, punchy clickbait title for the thumbnail
- * in the same language as the story.
+ * that is directly tied to the story's core message/hook.
  */
 async function generateThumbnailTitle(story: string): Promise<string> {
   const model = "gemini-3-flash-preview";
-  const prompt = `Generate a SHORT, punchy YouTube thumbnail title for this story.
-Rules:
-- Maximum 4-5 words. Shorter is better.
-- Must be in the SAME LANGUAGE as the story.
-- Use power words that trigger curiosity or emotion (e.g., "SHOCKING", "WARNING", "THE TRUTH ABOUT", "NEVER DO THIS", "YOU WON'T BELIEVE").
-- ALL CAPS for maximum impact.
-- No punctuation except "!" or "?"
-- Think viral YouTube clickbait style.
+  const prompt = `You are a YouTube content strategist. Your job is to create a thumbnail title that makes people CLICK.
 
-Story: ${story.substring(0, 300)}
+STORY TO ANALYZE:
+${story.substring(0, 500)}
 
-Return ONLY the title text, nothing else.`;
+STEP 1: Identify the MAIN TOPIC or the most SHOCKING/SURPRISING element of this story.
+STEP 2: Turn it into a short clickbait title.
+
+STRICT RULES:
+- The title MUST directly reference the main subject of the story (e.g., if the story is about health insurance abroad, mention health/insurance/expat).
+- Maximum 4-6 words. Every word must add value.
+- Must be in the EXACT SAME LANGUAGE as the story (if French → French title, if English → English title).
+- ALL CAPS.
+- Use ONE of these clickbait formulas:
+  * WARNING + specific topic (e.g., "ATTENTION À VOTRE SANTÉ !")
+  * Surprising fact (e.g., "70% DES EXPATS IGNORENT ÇA")
+  * Challenge/question (e.g., "JAMAIS PARTIR SANS ÇA !")
+  * Hidden truth (e.g., "LA VÉRITÉ SUR LA CFE")
+- The title should make someone curious enough to click.
+- NO generic phrases like "YOU WON'T BELIEVE" without context.
+- The title MUST make sense on its own — a stranger reading it should understand the topic.
+
+Return ONLY the title, nothing else.`;
 
   const response = await genAI.models.generateContent({
     model,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: { temperature: 1.0 }
+    config: { temperature: 0.8 }
   });
 
   return (response.text || '').trim().replace(/^["']|["']$/g, '');
@@ -371,35 +382,38 @@ async function generateThumbnail(story: string, scenes: Scene[], title: string):
 
   const keyScene = scenes[Math.floor(scenes.length / 2)];
 
-  const prompt = `Generate a YouTube thumbnail image in the EXACT style of viral "stick figure story" channels.
+  // Extract key visual elements from the story for the thumbnail
+  const storySnippet = story.substring(0, 300);
 
-REFERENCE STYLE:
-- SOLID BRIGHT background: pick ONE bold color — bright yellow (#FFD700), hot red (#FF2020), electric blue (#00BFFF), or neon green (#39FF14). The ENTIRE background is this single flat color, no gradients.
-- ONE large black stick figure on the LEFT side, taking up 60-70% of the image height.
-- The stick figure has a HUGE round head with EXTREMELY exaggerated facial expression:
-  * Giant wide-open eyes (large white circles with tiny black pupils)
-  * Massive open mouth showing SHOCK, FEAR, or SURPRISE
-  * Sweat drops, tears, or exclamation marks around the head
-- The stick figure's body is in a DRAMATIC pose: arms thrown up in panic, running, falling, or pointing.
-- Add 1-2 simple context objects related to the story drawn in simple black line art.
+  const prompt = `Generate a YouTube thumbnail image. The thumbnail must visually represent THIS specific story:
 
-STORY CONTEXT: ${story.substring(0, 200)}
-KEY EMOTION: ${keyScene.mainEmotion}
+STORY: ${storySnippet}
+TITLE TO DISPLAY: "${title}"
 
-TEXT TO INCLUDE (this is MANDATORY):
-Write this EXACT text in big, bold letters on the RIGHT side of the image: "${title}"
-- The text MUST be large, taking up about 40% of the image width.
-- Use a thick, bold, hand-drawn style font.
-- Text color: WHITE with a very THICK BLACK outline/stroke for maximum readability.
-- The text should be slightly tilted/dynamic (not perfectly horizontal) to feel energetic.
-- Each word should be on its own line if needed for maximum size.
+THE IMAGE MUST TELL THE STORY AT A GLANCE:
+- The stick figure's POSE and EXPRESSION must match the story's key moment (e.g., if the story is about sickness abroad → sick/worried stick figure with a medical cross; if about money → stick figure looking at money flying away).
+- Add 2-3 RELEVANT OBJECTS that directly illustrate the topic (e.g., for health insurance: medical cross, hospital, pill; for travel: airplane, suitcase, passport; for money: coins, bills, wallet).
+- The objects should be drawn in simple black line art, but can have one ACCENT COLOR (red cross for medical, green for money, etc.).
+
+STYLE:
+- SOLID BRIGHT background: pick a color that matches the story mood — yellow for warning/attention, red for danger/urgency, blue for information, green for money/health.
+- ONE large black stick figure on the LEFT (60-70% of image height).
+- HUGE round head with exaggerated expression matching the story emotion: ${keyScene.mainEmotion}.
+- Dramatic pose that matches the story context.
+
+TEXT "${title}" (MANDATORY):
+- Write "${title}" in big, bold letters on the RIGHT side.
+- The text MUST be large and readable even at phone size.
+- Text color: WHITE with THICK BLACK outline.
+- Slightly tilted for energy.
+- Each word on its own line if needed.
 
 COMPOSITION:
-- Stick figure on the LEFT (about 50% of image).
-- Big bold text "${title}" on the RIGHT (about 40% of image).
-- Keep it SIMPLE, BOLD, and readable even at mobile phone size.
+- Stick figure + relevant objects on the LEFT (50%).
+- Big bold text "${title}" on the RIGHT (40%).
+- Everything must be coherent: the text, the figure's emotion, and the objects should all tell the SAME story.
 
-IMPORTANT: You MUST include the text "${title}" in the image. This is the most important part of the thumbnail.`;
+CRITICAL: The text "${title}" MUST appear in the image. The objects MUST be relevant to the story topic.`;
 
   const response = await genAI.models.generateContent({
     model,
